@@ -3,13 +3,29 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: API for Sitio Camarin Rice Mill Management System
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: auth
+    description: Authentication and current user context
+  - name: dashboard
+    description: Role-specific dashboard summaries
+  - name: farmers
+    description: Farmer and customer records
+  - name: milling
+    description: Rice receiving and milling transactions
+  - name: inventory
+    description: Rice stock and inventory management
+  - name: payments
+    description: Customer payments and balances
+  - name: reports
+    description: Operational and financial reporting
+  - name: notifications
+    description: User notifications
 paths:
   /healthz:
     get:
@@ -24,7 +40,397 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+  /auth/me:
+    get:
+      operationId: getCurrentUser
+      tags: [auth]
+      summary: Get the current signed-in user
+      responses:
+        "200":
+          description: Current user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CurrentUser"
+        "401":
+          description: Unauthorized
+  /auth/demo-login:
+    post:
+      operationId: demoLogin
+      tags: [auth]
+      summary: Sign in using a demo account
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DemoLoginInput"
+      responses:
+        "200":
+          description: Signed-in user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CurrentUser"
+        "401":
+          description: Invalid demo credentials
+  /auth/logout:
+    post:
+      operationId: logout
+      tags: [auth]
+      summary: Sign out the current user
+      responses:
+        "204":
+          description: Signed out
+  /dashboard/summary:
+    get:
+      operationId: getDashboardSummary
+      tags: [dashboard]
+      summary: Get KPI and chart data for the current role
+      parameters:
+        - $ref: "#/components/parameters/Period"
+      responses:
+        "200":
+          description: Dashboard summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardSummary"
+  /dashboard/activity:
+    get:
+      operationId: getDashboardActivity
+      tags: [dashboard]
+      summary: Get recent operational activity
+      responses:
+        "200":
+          description: Recent activity
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ActivityItem"
+  /farmers:
+    get:
+      operationId: listFarmers
+      tags: [farmers]
+      summary: List farmers and customers
+      parameters:
+        - $ref: "#/components/parameters/Search"
+        - $ref: "#/components/parameters/Status"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PageSize"
+      responses:
+        "200":
+          description: Farmer list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FarmerList"
+    post:
+      operationId: createFarmer
+      tags: [farmers]
+      summary: Create a farmer or customer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FarmerInput"
+      responses:
+        "201":
+          description: Created farmer
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Farmer"
+  /farmers/{id}:
+    get:
+      operationId: getFarmer
+      tags: [farmers]
+      summary: Get a farmer or customer
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: Farmer
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Farmer"
+        "404":
+          description: Farmer not found
+    patch:
+      operationId: updateFarmer
+      tags: [farmers]
+      summary: Update a farmer or customer
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FarmerUpdate"
+      responses:
+        "200":
+          description: Updated farmer
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Farmer"
+    delete:
+      operationId: deleteFarmer
+      tags: [farmers]
+      summary: Soft-delete a farmer or customer
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "204":
+          description: Deleted
+  /milling-transactions:
+    get:
+      operationId: listMillingTransactions
+      tags: [milling]
+      summary: List milling transactions for the current role
+      parameters:
+        - $ref: "#/components/parameters/Search"
+        - $ref: "#/components/parameters/MillingStatus"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PageSize"
+      responses:
+        "200":
+          description: Milling transaction list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MillingTransactionList"
+    post:
+      operationId: createMillingTransaction
+      tags: [milling]
+      summary: Receive palay and create a milling transaction
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MillingTransactionInput"
+      responses:
+        "201":
+          description: Created transaction
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MillingTransaction"
+  /milling-transactions/{id}:
+    get:
+      operationId: getMillingTransaction
+      tags: [milling]
+      summary: Get a milling transaction and progress
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: Milling transaction
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MillingTransaction"
+        "403":
+          description: Access denied
+        "404":
+          description: Transaction not found
+    patch:
+      operationId: updateMillingTransaction
+      tags: [milling]
+      summary: Update milling status and transaction details
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MillingTransactionUpdate"
+      responses:
+        "200":
+          description: Updated transaction
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MillingTransaction"
+  /inventory:
+    get:
+      operationId: listInventory
+      tags: [inventory]
+      summary: List inventory items
+      parameters:
+        - $ref: "#/components/parameters/Search"
+        - $ref: "#/components/parameters/InventoryCategory"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PageSize"
+      responses:
+        "200":
+          description: Inventory list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InventoryList"
+    post:
+      operationId: createInventoryItem
+      tags: [inventory]
+      summary: Add an inventory item
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InventoryInput"
+      responses:
+        "201":
+          description: Created item
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InventoryItem"
+  /inventory/{id}:
+    patch:
+      operationId: updateInventoryItem
+      tags: [inventory]
+      summary: Adjust inventory stock
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InventoryUpdate"
+      responses:
+        "200":
+          description: Updated item
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InventoryItem"
+  /payments:
+    get:
+      operationId: listPayments
+      tags: [payments]
+      summary: List payments for the current role
+      parameters:
+        - $ref: "#/components/parameters/Search"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PageSize"
+      responses:
+        "200":
+          description: Payment list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaymentList"
+    post:
+      operationId: createPayment
+      tags: [payments]
+      summary: Record a payment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PaymentInput"
+      responses:
+        "201":
+          description: Created payment
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Payment"
+  /reports/summary:
+    get:
+      operationId: getReportsSummary
+      tags: [reports]
+      summary: Get report center aggregates
+      parameters:
+        - $ref: "#/components/parameters/Period"
+      responses:
+        "200":
+          description: Report summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReportsSummary"
+  /notifications:
+    get:
+      operationId: listNotifications
+      tags: [notifications]
+      summary: List notifications for the current user
+      responses:
+        "200":
+          description: Notifications
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Notification"
 components:
+  parameters:
+    Id:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: integer
+    Search:
+      name: search
+      in: query
+      required: false
+      schema:
+        type: string
+    Status:
+      name: status
+      in: query
+      required: false
+      schema:
+        type: string
+    MillingStatus:
+      name: status
+      in: query
+      required: false
+      schema:
+        $ref: "#/components/schemas/MillingStatus"
+    InventoryCategory:
+      name: category
+      in: query
+      required: false
+      schema:
+        type: string
+    Period:
+      name: period
+      in: query
+      required: false
+      schema:
+        type: string
+        enum: [today, week, month, year]
+        default: month
+    Page:
+      name: page
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+    PageSize:
+      name: pageSize
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
   schemas:
     HealthStatus:
       type: object
@@ -33,4 +439,273 @@ components:
           type: string
       required:
         - status
+    Role:
+      type: string
+      enum: [ADMIN, STAFF, FARMER, CUSTOMER]
+    CurrentUser:
+      type: object
+      required: [id, name, email, role]
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        email: { type: string, format: email }
+        role: { $ref: "#/components/schemas/Role" }
+        farmerId: { type: ["integer", "null"] }
+        avatar: { type: ["string", "null"] }
+    DemoLoginInput:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, format: email }
+        password: { type: string, minLength: 1 }
+    Farmer:
+      type: object
+      required: [id, farmerCode, customerNumber, fullName, customerType, barangay, sitio, status, registrationDate]
+      properties:
+        id: { type: integer }
+        farmerCode: { type: string }
+        customerNumber: { type: string }
+        fullName: { type: string }
+        gender: { type: string }
+        contactNumber: { type: string }
+        address: { type: string }
+        barangay: { type: string }
+        sitio: { type: string }
+        customerType: { type: string, enum: [FARMER, CUSTOMER] }
+        riceVariety: { type: string }
+        farmArea: { type: number }
+        status: { type: string, enum: [ACTIVE, INACTIVE] }
+        registrationDate: { type: string, format: date }
+        transactionCount: { type: integer }
+        balance: { type: number }
+    FarmerInput:
+      type: object
+      required: [fullName, customerType, contactNumber, barangay, sitio]
+      properties:
+        fullName: { type: string, minLength: 2 }
+        gender: { type: string }
+        contactNumber: { type: string }
+        address: { type: string }
+        barangay: { type: string }
+        sitio: { type: string }
+        customerType: { type: string, enum: [FARMER, CUSTOMER] }
+        riceVariety: { type: string }
+        farmArea: { type: number, minimum: 0 }
+    FarmerUpdate:
+      allOf:
+        - $ref: "#/components/schemas/FarmerInput"
+    FarmerList:
+      type: object
+      required: [items, total, page, pageSize]
+      properties:
+        items: { type: array, items: { $ref: "#/components/schemas/Farmer" } }
+        total: { type: integer }
+        page: { type: integer }
+        pageSize: { type: integer }
+    MillingStatus:
+      type: string
+      enum: [PENDING, RECEIVED, WEIGHING, PROCESSING, QUALITY_CHECK, READY_FOR_RELEASE, COMPLETED, CANCELLED]
+    MillingTransaction:
+      type: object
+      required: [id, transactionCode, farmerId, farmerName, riceVariety, riceType, quantityReceived, millingType, millingRate, serviceCharge, totalAmount, amountPaid, balance, dateReceived, millingDate, expectedCompletion, status]
+      properties:
+        id: { type: integer }
+        transactionCode: { type: string }
+        farmerId: { type: integer }
+        farmerName: { type: string }
+        riceVariety: { type: string }
+        riceType: { type: string }
+        quantityReceived: { type: number }
+        millingType: { type: string }
+        millingRate: { type: number }
+        serviceCharge: { type: number }
+        otherCharges: { type: number }
+        discount: { type: number }
+        totalAmount: { type: number }
+        amountPaid: { type: number }
+        balance: { type: number }
+        dateReceived: { type: string, format: date }
+        millingDate: { type: string, format: date }
+        expectedCompletion: { type: string, format: date }
+        operator: { type: string }
+        status: { $ref: "#/components/schemas/MillingStatus" }
+        progressStep: { type: integer, minimum: 0, maximum: 6 }
+        remarks: { type: ["string", "null"] }
+    MillingTransactionInput:
+      type: object
+      required: [farmerId, riceVariety, riceType, quantityReceived, millingType]
+      properties:
+        farmerId: { type: integer }
+        riceVariety: { type: string }
+        riceType: { type: string }
+        quantityReceived: { type: number, minimum: 0 }
+        millingType: { type: string }
+        remarks: { type: string }
+    MillingTransactionUpdate:
+      type: object
+      properties:
+        status: { $ref: "#/components/schemas/MillingStatus" }
+        amountPaid: { type: number, minimum: 0 }
+        operator: { type: string }
+        remarks: { type: string }
+    MillingTransactionList:
+      type: object
+      required: [items, total, page, pageSize]
+      properties:
+        items: { type: array, items: { $ref: "#/components/schemas/MillingTransaction" } }
+        total: { type: integer }
+        page: { type: integer }
+        pageSize: { type: integer }
+    InventoryItem:
+      type: object
+      required: [id, itemCode, itemName, category, unit, currentStock, minimumStock, maximumStock, unitCost, lastUpdated, stockStatus]
+      properties:
+        id: { type: integer }
+        itemCode: { type: string }
+        itemName: { type: string }
+        category: { type: string, enum: [RAW_MATERIAL, FINISHED_PRODUCT, BY_PRODUCT, PACKAGING] }
+        variety: { type: string }
+        unit: { type: string }
+        currentStock: { type: number }
+        minimumStock: { type: number }
+        maximumStock: { type: number }
+        unitCost: { type: number }
+        sellingPrice: { type: number }
+        supplier: { type: string }
+        storageLocation: { type: string }
+        lastUpdated: { type: string, format: date-time }
+        stockStatus: { type: string, enum: [HEALTHY, LOW_STOCK, OUT_OF_STOCK] }
+    InventoryInput:
+      type: object
+      required: [itemName, category, unit, currentStock, minimumStock, maximumStock, unitCost]
+      properties:
+        itemName: { type: string }
+        category: { type: string, enum: [RAW_MATERIAL, FINISHED_PRODUCT, BY_PRODUCT, PACKAGING] }
+        variety: { type: string }
+        unit: { type: string }
+        currentStock: { type: number, minimum: 0 }
+        minimumStock: { type: number, minimum: 0 }
+        maximumStock: { type: number, minimum: 0 }
+        unitCost: { type: number, minimum: 0 }
+        sellingPrice: { type: number, minimum: 0 }
+        supplier: { type: string }
+        storageLocation: { type: string }
+    InventoryUpdate:
+      type: object
+      properties:
+        currentStock: { type: number, minimum: 0 }
+        adjustment: { type: number }
+    InventoryList:
+      type: object
+      required: [items, total, lowStockCount]
+      properties:
+        items: { type: array, items: { $ref: "#/components/schemas/InventoryItem" } }
+        total: { type: integer }
+        lowStockCount: { type: integer }
+    Payment:
+      type: object
+      required: [id, paymentCode, transactionCode, customerName, date, amount, paymentMethod]
+      properties:
+        id: { type: integer }
+        paymentCode: { type: string }
+        transactionCode: { type: string }
+        customerName: { type: string }
+        date: { type: string, format: date }
+        amount: { type: number }
+        paymentMethod: { type: string, enum: [CASH, BANK_TRANSFER, GCASH, OTHER] }
+        referenceNumber: { type: ["string", "null"] }
+        receivedBy: { type: string }
+        remarks: { type: ["string", "null"] }
+    PaymentInput:
+      type: object
+      required: [transactionId, amount, paymentMethod]
+      properties:
+        transactionId: { type: integer }
+        amount: { type: number, minimum: 0 }
+        paymentMethod: { type: string, enum: [CASH, BANK_TRANSFER, GCASH, OTHER] }
+        referenceNumber: { type: string }
+        remarks: { type: string }
+    PaymentList:
+      type: object
+      required: [items, total, totalPaid, outstanding]
+      properties:
+        items: { type: array, items: { $ref: "#/components/schemas/Payment" } }
+        total: { type: integer }
+        totalPaid: { type: number }
+        outstanding: { type: number }
+    DashboardSummary:
+      type: object
+      required: [role, kpis, millingVolume, inventoryBreakdown, revenue, millingStatus]
+      properties:
+        role: { $ref: "#/components/schemas/Role" }
+        kpis:
+          type: object
+          additionalProperties: { type: number }
+        millingVolume:
+          type: array
+          items:
+            type: object
+            required: [label, volume]
+            properties:
+              label: { type: string }
+              volume: { type: number }
+        inventoryBreakdown:
+          type: array
+          items:
+            type: object
+            required: [label, value]
+            properties:
+              label: { type: string }
+              value: { type: number }
+        revenue:
+          type: array
+          items:
+            type: object
+            required: [label, value]
+            properties:
+              label: { type: string }
+              value: { type: number }
+        millingStatus:
+          type: array
+          items:
+            type: object
+            required: [status, count]
+            properties:
+              status: { type: string }
+              count: { type: integer }
+    ActivityItem:
+      type: object
+      required: [id, title, description, timestamp, tone]
+      properties:
+        id: { type: integer }
+        title: { type: string }
+        description: { type: string }
+        timestamp: { type: string, format: date-time }
+        tone: { type: string, enum: [success, warning, info, neutral] }
+    ReportsSummary:
+      type: object
+      required: [revenue, payments, expenses, netIncome, outstandingBalance, production]
+      properties:
+        revenue: { type: number }
+        payments: { type: number }
+        expenses: { type: number }
+        netIncome: { type: number }
+        outstandingBalance: { type: number }
+        production:
+          type: object
+          required: [input, milled, recoveryRate]
+          properties:
+            input: { type: number }
+            milled: { type: number }
+            recoveryRate: { type: number }
+    Notification:
+      type: object
+      required: [id, title, message, createdAt, unread, type]
+      properties:
+        id: { type: integer }
+        title: { type: string }
+        message: { type: string }
+        createdAt: { type: string, format: date-time }
+        unread: { type: boolean }
+        type: { type: string, enum: [RECEIVING, MILLING, PAYMENT, INVENTORY, EQUIPMENT, SYSTEM] }
 
