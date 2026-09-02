@@ -148,6 +148,67 @@ router.get("/dashboard/activity", requireAuth, async (_req, res): Promise<void> 
   })));
 });
 
+// ----------------------------------------------------------------
+// Notifications Routes
+// ----------------------------------------------------------------
+
+router.get("/notifications", requireAuth, async (req, res): Promise<void> => {
+  const user = getRequestUser(req);
+  const rows = await db.select().from(notificationsTable)
+    .where(
+      user?.farmerId
+        ? sql`${notificationsTable.userId} = ${user.id} OR ${notificationsTable.userId} IS NULL`
+        : undefined
+    )
+    .orderBy(desc(notificationsTable.createdAt));
+  res.json(rows.map(r => ({
+    id: r.id,
+    title: r.title,
+    message: r.message,
+    type: r.type,
+    unread: r.unread,
+    userId: r.userId,
+    timestamp: r.createdAt.toISOString(),
+    createdAt: r.createdAt.toISOString(),
+  })));
+});
+
+router.post("/notifications", adminRoles, async (req, res): Promise<void> => {
+  const { title, message, type = "SYSTEM", userId } = req.body ?? {};
+  if (!title || !message) { res.status(400).json({ error: "title and message are required" }); return; }
+  const [notif] = await db.insert(notificationsTable).values({
+    title,
+    message,
+    type,
+    userId: userId ?? null,
+    unread: true,
+  }).returning();
+  res.status(201).json({ ...notif, timestamp: notif.createdAt.toISOString() });
+});
+
+router.patch("/notifications/mark-all-read", requireAuth, async (_req, res): Promise<void> => {
+  await db.update(notificationsTable).set({ unread: false });
+  res.json({ success: true });
+});
+
+router.patch("/notifications/:id", requireAuth, async (req, res): Promise<void> => {
+  const id = Number(req.params.id);
+  const { unread } = req.body ?? {};
+  const [notif] = await db.update(notificationsTable)
+    .set({ unread: unread === undefined ? false : Boolean(unread) })
+    .where(eq(notificationsTable.id, id))
+    .returning();
+  if (!notif) { res.status(404).json({ error: "Notification not found" }); return; }
+  res.json({ ...notif, timestamp: notif.createdAt.toISOString() });
+});
+
+router.delete("/notifications/:id", adminRoles, async (req, res): Promise<void> => {
+  const id = Number(req.params.id);
+  const [deleted] = await db.delete(notificationsTable).where(eq(notificationsTable.id, id)).returning();
+  if (!deleted) { res.status(404).json({ error: "Notification not found" }); return; }
+  res.sendStatus(204);
+});
+
 router.get("/farmers", requireRole("ADMIN", "STAFF"), async (req, res): Promise<void> => {
   const parsed = ListFarmersQueryParams.safeParse(req.query);
   if (!parsed.success) {
@@ -218,28 +279,40 @@ router.get("/milling-transactions", requireAuth, async (req, res): Promise<void>
 });
 
 router.post("/milling-transactions", adminRoles, async (req, res): Promise<void> => {
-  const parsed = CreateMillingTransactionBody.safeParse(req.body);
+  const body = {
+    ...req.body,
+    riceType: req.body?.riceType || "Palay",
+    millingType: req.body?.millingType || "Regular Milling",
+  };
+  const parsed = CreateMillingTransactionBody.safeParse(body);
   if (!parsed.success) { res.status(400).json({ error: parsed.error.message }); return; }
   const farmer = await db.select().from(farmersTable).where(eq(farmersTable.id, parsed.data.farmerId));
   if (!farmer[0]) { res.status(404).json({ error: "Farmer not found" }); return; }
+  
   const quantity = parsed.data.quantityReceived;
-  const rate = 4.5;
-  const serviceCharge = quantity * rate / 100;
+  const rate = req.body?.millingRate ? Number(req.body.millingRate) : 4.5;
+  const serviceCharge = req.body?.serviceCharge ? Number(req.body.serviceCharge) : (quantity * rate);
+  const otherCharges = req.body?.otherCharges ? Number(req.body.otherCharges) : 0;
+  const discount = req.body?.discount ? Number(req.body.discount) : 0;
+  const totalAmount = req.body?.totalAmount ? Number(req.body.totalAmount) : (serviceCharge + otherCharges - discount);
+
   const [transaction] = await db.insert(millingTransactionsTable).values({
     transactionCode: `MT-${Date.now().toString().slice(-7)}`,
     farmerId: parsed.data.farmerId,
     riceVariety: parsed.data.riceVariety,
-    riceType: parsed.data.riceType,
+    riceType: parsed.data.riceType || "Palay",
     quantityReceived: String(quantity),
-    millingType: parsed.data.millingType,
+    millingType: parsed.data.millingType || "Regular Milling",
     millingRate: String(rate),
     serviceCharge: String(serviceCharge),
-    totalAmount: String(serviceCharge),
+    otherCharges: String(otherCharges),
+    discount: String(discount),
+    totalAmount: String(totalAmount),
     amountPaid: "0",
     dateReceived: new Date().toISOString().slice(0, 10),
     millingDate: new Date().toISOString().slice(0, 10),
-    expectedCompletion: new Date(Date.now() + 172800000).toISOString().slice(0, 10),
-    remarks: parsed.data.remarks ?? null,
+    expectedCompletion: req.body?.expectedCompletion || new Date(Date.now() + 172800000).toISOString().slice(0, 10),
+    remarks: parsed.data.remarks ?? req.body?.remarks ?? null,
   }).returning();
   res.status(201).json(mapTransaction(transaction, farmer[0].fullName));
 });
@@ -253,13 +326,61 @@ router.get("/milling-transactions/:id", requireAuth, async (req, res): Promise<v
 });
 
 router.patch("/milling-transactions/:id", adminRoles, async (req, res): Promise<void> => {
-  const parsed = UpdateMillingTransactionBody.safeParse(req.body);
-  if (!parsed.success) { res.status(400).json({ error: parsed.error.message }); return; }
-  const progressMap = { PENDING: 0, RECEIVED: 1, WEIGHING: 2, PROCESSING: 3, QUALITY_CHECK: 4, READY_FOR_RELEASE: 5, COMPLETED: 6, CANCELLED: 0 } as const;
-  const [transaction] = await db.update(millingTransactionsTable).set({ ...parsed.data, progressStep: parsed.data.status ? progressMap[parsed.data.status] : undefined, amountPaid: parsed.data.amountPaid === undefined ? undefined : String(parsed.data.amountPaid), updatedAt: new Date() }).where(eq(millingTransactionsTable.id, Number(req.params.id))).returning();
+  const body = req.body ?? {};
+  const progressMap: Record<string, number> = { PENDING: 0, RECEIVED: 1, WEIGHING: 2, PROCESSING: 3, QUALITY_CHECK: 4, READY_FOR_RELEASE: 5, COMPLETED: 6, CANCELLED: 0 };
+  const updateData: Record<string, unknown> = { updatedAt: new Date() };
+  if (body.status !== undefined) {
+    updateData.status = body.status;
+    updateData.progressStep = progressMap[body.status] ?? 1;
+  }
+  if (body.quantityReceived !== undefined) {
+    const qty = Number(body.quantityReceived);
+    const rate = body.millingRate !== undefined ? Number(body.millingRate) : 4.5;
+    updateData.quantityReceived = String(qty);
+    updateData.millingRate = String(rate);
+    const serviceCharge = qty * rate;
+    updateData.serviceCharge = String(serviceCharge);
+    const otherCharges = body.otherCharges !== undefined ? Number(body.otherCharges) : 0;
+    const discount = body.discount !== undefined ? Number(body.discount) : 0;
+    updateData.totalAmount = String(Math.max(0, serviceCharge + otherCharges - discount));
+  }
+  if (body.millingRate !== undefined && body.quantityReceived === undefined) updateData.millingRate = String(body.millingRate);
+  if (body.serviceCharge !== undefined) updateData.serviceCharge = String(body.serviceCharge);
+  if (body.otherCharges !== undefined) updateData.otherCharges = String(body.otherCharges);
+  if (body.discount !== undefined) updateData.discount = String(body.discount);
+  if (body.totalAmount !== undefined) updateData.totalAmount = String(body.totalAmount);
+  if (body.riceVariety !== undefined) updateData.riceVariety = body.riceVariety;
+  if (body.riceType !== undefined) updateData.riceType = body.riceType;
+  if (body.millingType !== undefined) updateData.millingType = body.millingType;
+  if (body.operator !== undefined) updateData.operator = body.operator;
+  if (body.remarks !== undefined) updateData.remarks = body.remarks;
+  if (body.expectedCompletion !== undefined) updateData.expectedCompletion = body.expectedCompletion;
+  if (body.amountPaid !== undefined) updateData.amountPaid = String(body.amountPaid);
+
+  const [transaction] = await db.update(millingTransactionsTable).set(updateData).where(eq(millingTransactionsTable.id, Number(req.params.id))).returning();
   if (!transaction) { res.status(404).json({ error: "Transaction not found" }); return; }
   const [farmer] = await db.select().from(farmersTable).where(eq(farmersTable.id, transaction.farmerId));
+
+  // Create notification when status changes to COMPLETED or READY_FOR_RELEASE
+  if (body.status === "COMPLETED" || body.status === "READY_FOR_RELEASE") {
+    const statusLabel = body.status === "COMPLETED" ? "completed" : "ready for release";
+    await db.insert(notificationsTable).values({
+      title: body.status === "COMPLETED" ? "Milling Batch Completed" : "Batch Ready for Release",
+      message: `${transaction.transactionCode} (${farmer?.fullName ?? "Unknown"} — ${transaction.riceVariety} ${asNumber(transaction.quantityReceived).toLocaleString()} kg) is now ${statusLabel}.`,
+      type: "MILLING",
+      unread: true,
+    }).catch(() => {/* non-critical */});
+  }
+
   res.json(mapTransaction(transaction, farmer?.fullName ?? "Unknown customer"));
+});
+
+router.delete("/milling-transactions/:id", adminRoles, async (req, res): Promise<void> => {
+  const id = Number(req.params.id);
+  await db.delete(paymentsTable).where(eq(paymentsTable.transactionId, id));
+  const [deleted] = await db.delete(millingTransactionsTable).where(eq(millingTransactionsTable.id, id)).returning();
+  if (!deleted) { res.status(404).json({ error: "Transaction not found" }); return; }
+  res.sendStatus(204);
 });
 
 router.get("/inventory", adminRoles, async (req, res): Promise<void> => {
@@ -267,7 +388,7 @@ router.get("/inventory", adminRoles, async (req, res): Promise<void> => {
   if (!parsed.success) { res.status(400).json({ error: parsed.error.message }); return; }
   const filters = [];
   if (parsed.data.search) filters.push(ilike(inventoryItemsTable.itemName, `%${parsed.data.search}%`));
-  if (parsed.data.category) filters.push(eq(inventoryItemsTable.category, parsed.data.category));
+  if (parsed.data.category) filters.push(eq(inventoryItemsTable.category, parsed.data.category as any));
   const rows = await db.select().from(inventoryItemsTable).where(filters.length ? and(...filters) : undefined).orderBy(asc(inventoryItemsTable.itemName));
   const items = rows.map((item) => ({ ...item, currentStock: asNumber(item.currentStock), minimumStock: asNumber(item.minimumStock), maximumStock: asNumber(item.maximumStock), unitCost: asNumber(item.unitCost), sellingPrice: asNumber(item.sellingPrice), lastUpdated: item.lastUpdated.toISOString(), stockStatus: asNumber(item.currentStock) === 0 ? "OUT_OF_STOCK" : asNumber(item.currentStock) <= asNumber(item.minimumStock) ? "LOW_STOCK" : "HEALTHY" }));
   res.json({ items, total: items.length, lowStockCount: items.filter((item) => item.stockStatus === "LOW_STOCK").length });
@@ -277,16 +398,59 @@ router.post("/inventory", adminRoles, async (req, res): Promise<void> => {
   const parsed = CreateInventoryItemBody.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: parsed.error.message }); return; }
   const [item] = await db.insert(inventoryItemsTable).values({ ...parsed.data, itemCode: `INV-${Date.now().toString().slice(-4)}`, variety: parsed.data.variety ?? "—", unit: parsed.data.unit, currentStock: String(parsed.data.currentStock), minimumStock: String(parsed.data.minimumStock), maximumStock: String(parsed.data.maximumStock), unitCost: String(parsed.data.unitCost), sellingPrice: String(parsed.data.sellingPrice ?? 0), supplier: parsed.data.supplier ?? "Local supplier", storageLocation: parsed.data.storageLocation ?? "Main warehouse" }).returning();
+  // Alert if stock is below minimum on creation
+  if (asNumber(item.currentStock) <= asNumber(item.minimumStock) && asNumber(item.minimumStock) > 0) {
+    await db.insert(notificationsTable).values({ title: "Low Stock Alert", message: `${item.itemName} stock (${asNumber(item.currentStock)} ${item.unit}) is at or below minimum threshold of ${asNumber(item.minimumStock)} ${item.unit}.`, type: "INVENTORY", unread: true }).catch(() => {});
+  }
   res.status(201).json({ ...item, currentStock: asNumber(item.currentStock), minimumStock: asNumber(item.minimumStock), maximumStock: asNumber(item.maximumStock), unitCost: asNumber(item.unitCost), sellingPrice: asNumber(item.sellingPrice), lastUpdated: item.lastUpdated.toISOString(), stockStatus: "HEALTHY" });
 });
 
 router.patch("/inventory/:id", adminRoles, async (req, res): Promise<void> => {
-  const parsed = UpdateInventoryItemBody.safeParse(req.body);
-  if (!parsed.success) { res.status(400).json({ error: parsed.error.message }); return; }
-  const [item] = await db.update(inventoryItemsTable).set({ currentStock: parsed.data.currentStock === undefined ? undefined : String(parsed.data.currentStock), lastUpdated: new Date() }).where(eq(inventoryItemsTable.id, Number(req.params.id))).returning();
-  if (!item) { res.status(404).json({ error: "Inventory item not found" }); return; }
+  const id = Number(req.params.id);
+  const [existing] = await db.select().from(inventoryItemsTable).where(eq(inventoryItemsTable.id, id));
+  if (!existing) { res.status(404).json({ error: "Inventory item not found" }); return; }
+  const body = req.body ?? {};
+  let newStock = body.currentStock !== undefined ? Number(body.currentStock) : asNumber(existing.currentStock);
+  if (body.adjustment !== undefined) {
+    newStock = Math.max(0, newStock + Number(body.adjustment));
+  }
+  const updateData: Record<string, unknown> = {
+    lastUpdated: new Date(),
+    currentStock: String(newStock),
+  };
+  if (body.itemName !== undefined) updateData.itemName = body.itemName;
+  if (body.category !== undefined) updateData.category = body.category;
+  if (body.variety !== undefined) updateData.variety = body.variety;
+  if (body.unit !== undefined) updateData.unit = body.unit;
+  if (body.minimumStock !== undefined) updateData.minimumStock = String(body.minimumStock);
+  if (body.maximumStock !== undefined) updateData.maximumStock = String(body.maximumStock);
+  if (body.unitCost !== undefined) updateData.unitCost = String(body.unitCost);
+  if (body.sellingPrice !== undefined) updateData.sellingPrice = String(body.sellingPrice);
+  if (body.supplier !== undefined) updateData.supplier = body.supplier;
+  if (body.storageLocation !== undefined) updateData.storageLocation = body.storageLocation;
+  
+  const [item] = await db.update(inventoryItemsTable).set(updateData).where(eq(inventoryItemsTable.id, id)).returning();
   const currentStock = asNumber(item.currentStock);
-  res.json({ ...item, currentStock, minimumStock: asNumber(item.minimumStock), maximumStock: asNumber(item.maximumStock), unitCost: asNumber(item.unitCost), sellingPrice: asNumber(item.sellingPrice), lastUpdated: item.lastUpdated.toISOString(), stockStatus: currentStock === 0 ? "OUT_OF_STOCK" : currentStock <= asNumber(item.minimumStock) ? "LOW_STOCK" : "HEALTHY" });
+  const minStock = asNumber(item.minimumStock);
+
+  // Trigger low-stock notification if stock drops to or below minimum
+  if (currentStock <= minStock && minStock > 0 && currentStock < asNumber(existing.currentStock)) {
+    await db.insert(notificationsTable).values({
+      title: currentStock === 0 ? "Out of Stock Alert" : "Low Stock Alert",
+      message: `${item.itemName} stock is now at ${currentStock} ${item.unit}${currentStock === 0 ? " — OUT OF STOCK" : ` (minimum: ${minStock} ${item.unit})`}. Restock recommended.`,
+      type: "INVENTORY",
+      unread: true,
+    }).catch(() => {});
+  }
+
+  res.json({ ...item, currentStock, minimumStock: minStock, maximumStock: asNumber(item.maximumStock), unitCost: asNumber(item.unitCost), sellingPrice: asNumber(item.sellingPrice), lastUpdated: item.lastUpdated.toISOString(), stockStatus: currentStock === 0 ? "OUT_OF_STOCK" : currentStock <= minStock ? "LOW_STOCK" : "HEALTHY" });
+});
+
+router.delete("/inventory/:id", adminRoles, async (req, res): Promise<void> => {
+  const id = Number(req.params.id);
+  const [deleted] = await db.delete(inventoryItemsTable).where(eq(inventoryItemsTable.id, id)).returning();
+  if (!deleted) { res.status(404).json({ error: "Item not found" }); return; }
+  res.sendStatus(204);
 });
 
 router.get("/payments", requireAuth, async (req, res): Promise<void> => {
@@ -303,25 +467,195 @@ router.post("/payments", adminRoles, async (req, res): Promise<void> => {
   const parsed = CreatePaymentBody.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: parsed.error.message }); return; }
   const transaction = await transactionBalance(parsed.data.transactionId);
-  const [payment] = await db.insert(paymentsTable).values({ paymentCode: `PAY-${Date.now().toString().slice(-7)}`, transactionId: parsed.data.transactionId, amount: String(parsed.data.amount), paymentMethod: parsed.data.paymentMethod, referenceNumber: parsed.data.referenceNumber ?? null, remarks: parsed.data.remarks ?? null }).returning();
-  await db.update(millingTransactionsTable).set({ amountPaid: String(transaction.amountPaid + parsed.data.amount), updatedAt: new Date() }).where(eq(millingTransactionsTable.id, parsed.data.transactionId));
-  const [transactionRow] = await db.select({ transactionCode: millingTransactionsTable.transactionCode, customerName: farmersTable.fullName }).from(millingTransactionsTable).leftJoin(farmersTable, eq(farmersTable.id, millingTransactionsTable.farmerId)).where(eq(millingTransactionsTable.id, parsed.data.transactionId));
+  const receivedBy = req.body?.receivedBy || "Mila Santos (Cashier)";
+  const [payment] = await db.insert(paymentsTable).values({
+    paymentCode: `PAY-${Date.now().toString().slice(-7)}`,
+    transactionId: parsed.data.transactionId,
+    amount: String(parsed.data.amount),
+    paymentMethod: parsed.data.paymentMethod,
+    receivedBy,
+    referenceNumber: parsed.data.referenceNumber ?? null,
+    remarks: parsed.data.remarks ?? null,
+  }).returning();
+  const newAmountPaid = transaction.amountPaid + parsed.data.amount;
+  await db.update(millingTransactionsTable).set({ amountPaid: String(newAmountPaid), updatedAt: new Date() }).where(eq(millingTransactionsTable.id, parsed.data.transactionId));
+  const [transactionRow] = await db.select({ transactionCode: millingTransactionsTable.transactionCode, customerName: farmersTable.fullName, totalAmount: millingTransactionsTable.totalAmount }).from(millingTransactionsTable).leftJoin(farmersTable, eq(farmersTable.id, millingTransactionsTable.farmerId)).where(eq(millingTransactionsTable.id, parsed.data.transactionId));
+
+  // Create payment notification
+  const isFullyPaid = newAmountPaid >= asNumber(transactionRow?.totalAmount ?? 0);
+  await db.insert(notificationsTable).values({
+    title: isFullyPaid ? "Invoice Fully Paid" : "Partial Payment Received",
+    message: `${isFullyPaid ? "Full" : "Partial"} cash payment of ₱${parsed.data.amount.toLocaleString()} received from ${transactionRow?.customerName ?? "customer"} for ${transactionRow?.transactionCode ?? "invoice"}.`,
+    type: "PAYMENT",
+    unread: true,
+  }).catch(() => {});
+
   res.status(201).json({ ...payment, amount: asNumber(payment.amount), transactionCode: transactionRow?.transactionCode ?? "—", customerName: transactionRow?.customerName ?? "Unknown customer", date: payment.date });
 });
 
-router.get("/reports/summary", adminRoles, async (req, res): Promise<void> => {
-  GetReportsSummaryQueryParams.safeParse(req.query);
-  const transactions = await listTransactions();
-  const expenses = await db.select().from(expensesTable);
-  const revenue = transactions.reduce((sum, item) => sum + item.totalAmount, 0);
-  const payments = transactions.reduce((sum, item) => sum + item.amountPaid, 0);
-  const input = transactions.reduce((sum, item) => sum + item.quantityReceived, 0);
-  res.json({ revenue, payments, expenses: expenses.reduce((sum, item) => sum + asNumber(item.amount), 0), netIncome: payments - expenses.reduce((sum, item) => sum + asNumber(item.amount), 0), outstandingBalance: transactions.reduce((sum, item) => sum + item.balance, 0), production: { input, milled: input * 0.68, recoveryRate: 68 } });
+
+router.patch("/payments/:id", adminRoles, async (req, res): Promise<void> => {
+  const id = Number(req.params.id);
+  const body = req.body ?? {};
+  const [existing] = await db.select().from(paymentsTable).where(eq(paymentsTable.id, id));
+  if (!existing) { res.status(404).json({ error: "Payment not found" }); return; }
+  const updateData: Record<string, unknown> = {};
+  if (body.amount !== undefined) updateData.amount = String(body.amount);
+  if (body.paymentMethod !== undefined) updateData.paymentMethod = body.paymentMethod;
+  if (body.referenceNumber !== undefined) updateData.referenceNumber = body.referenceNumber;
+  if (body.remarks !== undefined) updateData.remarks = body.remarks;
+  
+  const [payment] = await db.update(paymentsTable).set(updateData).where(eq(paymentsTable.id, id)).returning();
+  if (body.amount !== undefined) {
+    const diff = Number(body.amount) - asNumber(existing.amount);
+    const [trx] = await db.select().from(millingTransactionsTable).where(eq(millingTransactionsTable.id, existing.transactionId));
+    if (trx) {
+      await db.update(millingTransactionsTable).set({
+        amountPaid: String(Math.max(0, asNumber(trx.amountPaid) + diff)),
+        updatedAt: new Date(),
+      }).where(eq(millingTransactionsTable.id, existing.transactionId));
+    }
+  }
+  const [trxRow] = await db.select({ transactionCode: millingTransactionsTable.transactionCode, customerName: farmersTable.fullName }).from(millingTransactionsTable).leftJoin(farmersTable, eq(farmersTable.id, millingTransactionsTable.farmerId)).where(eq(millingTransactionsTable.id, payment.transactionId));
+  res.json({ ...payment, amount: asNumber(payment.amount), transactionCode: trxRow?.transactionCode ?? "—", customerName: trxRow?.customerName ?? "Unknown customer", date: payment.date });
 });
 
-router.get("/notifications", requireAuth, async (_req, res): Promise<void> => {
-  const notifications = await db.select().from(notificationsTable).orderBy(desc(notificationsTable.createdAt));
-  res.json(notifications.map((item) => ({ id: item.id, title: item.title, message: item.message, createdAt: item.createdAt.toISOString(), unread: item.unread, type: item.type })));
+router.delete("/payments/:id", adminRoles, async (req, res): Promise<void> => {
+  const id = Number(req.params.id);
+  const [existing] = await db.select().from(paymentsTable).where(eq(paymentsTable.id, id));
+  if (!existing) { res.status(404).json({ error: "Payment not found" }); return; }
+  await db.delete(paymentsTable).where(eq(paymentsTable.id, id));
+  const [trx] = await db.select().from(millingTransactionsTable).where(eq(millingTransactionsTable.id, existing.transactionId));
+  if (trx) {
+    await db.update(millingTransactionsTable).set({
+      amountPaid: String(Math.max(0, asNumber(trx.amountPaid) - asNumber(existing.amount))),
+      updatedAt: new Date(),
+    }).where(eq(millingTransactionsTable.id, existing.transactionId));
+  }
+  res.sendStatus(204);
+});
+
+router.get("/expenses", adminRoles, async (_req, res): Promise<void> => {
+  const rows = await db.select().from(expensesTable).orderBy(desc(expensesTable.date));
+  res.json(rows.map((exp) => ({ ...exp, amount: asNumber(exp.amount) })));
+});
+
+router.post("/expenses", adminRoles, async (req, res): Promise<void> => {
+  const { category, description, amount, payee, paymentMethod = "CASH" } = req.body ?? {};
+  if (!category || !description || !amount || !payee) {
+    res.status(400).json({ error: "All fields are required" });
+    return;
+  }
+  const [expense] = await db.insert(expensesTable).values({
+    expenseCode: `EXP-${Date.now().toString().slice(-6)}`,
+    category,
+    description,
+    amount: String(amount),
+    payee,
+    paymentMethod,
+    date: new Date().toISOString().slice(0, 10),
+  }).returning();
+  res.status(201).json({ ...expense, amount: asNumber(expense.amount) });
+});
+
+router.delete("/expenses/:id", adminRoles, async (req, res): Promise<void> => {
+  const id = Number(req.params.id);
+  const [deleted] = await db.delete(expensesTable).where(eq(expensesTable.id, id)).returning();
+  if (!deleted) { res.status(404).json({ error: "Expense not found" }); return; }
+  res.sendStatus(204);
+});
+
+router.get("/reports/summary", adminRoles, async (req, res): Promise<void> => {
+  const { dateFrom, dateTo } = req.query as { dateFrom?: string; dateTo?: string };
+  const allTransactions = await listTransactions();
+  const expenses = await db.select().from(expensesTable);
+  const payments = await db.select().from(paymentsTable).orderBy(asc(paymentsTable.date));
+
+  // Apply date filtering
+  const filteredTransactions = allTransactions.filter(t => {
+    if (dateFrom && t.dateReceived < dateFrom) return false;
+    if (dateTo && t.dateReceived > dateTo) return false;
+    return true;
+  });
+  const filteredExpenses = expenses.filter(e => {
+    if (dateFrom && e.date < dateFrom) return false;
+    if (dateTo && e.date > dateTo) return false;
+    return true;
+  });
+  const filteredPayments = payments.filter(p => {
+    if (dateFrom && p.date < dateFrom) return false;
+    if (dateTo && p.date > dateTo) return false;
+    return true;
+  });
+
+  const revenue = filteredTransactions.reduce((sum, item) => sum + item.totalAmount, 0);
+  const collected = filteredTransactions.reduce((sum, item) => sum + item.amountPaid, 0);
+  const expensesTotal = filteredExpenses.reduce((sum, item) => sum + asNumber(item.amount), 0);
+  const input = filteredTransactions.reduce((sum, item) => sum + item.quantityReceived, 0);
+  const milled = input * 0.68;
+
+  // Weekly revenue trend (last 7 data points)
+  const revenueByDate: Record<string, number> = {};
+  filteredPayments.forEach(p => {
+    const day = p.date;
+    revenueByDate[day] = (revenueByDate[day] ?? 0) + asNumber(p.amount);
+  });
+  const revenueTrend = Object.entries(revenueByDate)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .slice(-14)
+    .map(([label, value]) => ({ label: label.slice(5), value }));
+
+  // Volume trend
+  const volumeByDate: Record<string, number> = {};
+  filteredTransactions.forEach(t => {
+    const day = t.dateReceived;
+    volumeByDate[day] = (volumeByDate[day] ?? 0) + t.quantityReceived;
+  });
+  const volumeTrend = Object.entries(volumeByDate)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .slice(-14)
+    .map(([label, volume]) => ({ label: label.slice(5), volume }));
+
+  // Top farmers by volume
+  const farmerVolume: Record<number, { name: string; volume: number; revenue: number }> = {};
+  filteredTransactions.forEach(t => {
+    if (!farmerVolume[t.farmerId]) farmerVolume[t.farmerId] = { name: t.farmerName, volume: 0, revenue: 0 };
+    farmerVolume[t.farmerId].volume += t.quantityReceived;
+    farmerVolume[t.farmerId].revenue += t.totalAmount;
+  });
+  const topFarmers = Object.values(farmerVolume)
+    .sort((a, b) => b.volume - a.volume)
+    .slice(0, 5);
+
+  // Status breakdown
+  const statusCounts = ["PENDING","RECEIVED","WEIGHING","PROCESSING","QUALITY_CHECK","READY_FOR_RELEASE","COMPLETED","CANCELLED"]
+    .map(status => ({ status, count: filteredTransactions.filter(t => t.status === status).length }));
+
+  res.json({
+    revenue,
+    payments: collected,
+    expenses: expensesTotal,
+    netIncome: collected - expensesTotal,
+    outstandingBalance: filteredTransactions.reduce((sum, item) => sum + item.balance, 0),
+    production: { input, milled: Math.round(milled), recoveryRate: 68 },
+    revenueTrend,
+    volumeTrend,
+    topFarmers,
+    statusCounts,
+    transactionCount: filteredTransactions.length,
+    completedCount: filteredTransactions.filter(t => t.status === "COMPLETED").length,
+  });
+});
+
+
+router.post("/admin/clear-all-data", adminRoles, async (_req, res): Promise<void> => {
+  await db.delete(paymentsTable);
+  await db.delete(millingTransactionsTable);
+  await db.delete(inventoryItemsTable);
+  await db.delete(expensesTable);
+  await db.delete(notificationsTable);
+  await db.delete(farmersTable);
+  res.json({ success: true, message: "All records cleared successfully." });
 });
 
 export default router;

@@ -293,6 +293,24 @@ export interface PaymentInput {
   remarks?: string;
 }
 
+export type PaymentUpdatePaymentMethod = typeof PaymentUpdatePaymentMethod[keyof typeof PaymentUpdatePaymentMethod];
+
+
+export const PaymentUpdatePaymentMethod = {
+  CASH: 'CASH',
+  BANK_TRANSFER: 'BANK_TRANSFER',
+  GCASH: 'GCASH',
+  OTHER: 'OTHER',
+} as const;
+
+export interface PaymentUpdate {
+  /** @minimum 0 */
+  amount?: number;
+  paymentMethod?: PaymentUpdatePaymentMethod;
+  referenceNumber?: string;
+  remarks?: string;
+}
+
 export interface PaymentList {
   items: Payment[];
   total: number;
@@ -347,6 +365,46 @@ export interface ActivityItem {
   description: string;
   timestamp: string;
   tone: ActivityItemTone;
+}
+
+export type ExpensePaymentMethod = typeof ExpensePaymentMethod[keyof typeof ExpensePaymentMethod];
+
+
+export const ExpensePaymentMethod = {
+  CASH: 'CASH',
+  BANK_TRANSFER: 'BANK_TRANSFER',
+  GCASH: 'GCASH',
+  OTHER: 'OTHER',
+} as const;
+
+export interface Expense {
+  id: number;
+  expenseCode: string;
+  category: string;
+  description: string;
+  amount: number;
+  payee: string;
+  paymentMethod: ExpensePaymentMethod;
+  date: string;
+}
+
+export type ExpenseInputPaymentMethod = typeof ExpenseInputPaymentMethod[keyof typeof ExpenseInputPaymentMethod];
+
+
+export const ExpenseInputPaymentMethod = {
+  CASH: 'CASH',
+  BANK_TRANSFER: 'BANK_TRANSFER',
+  GCASH: 'GCASH',
+  OTHER: 'OTHER',
+} as const;
+
+export interface ExpenseInput {
+  category: string;
+  description: string;
+  /** @minimum 0 */
+  amount: number;
+  payee: string;
+  paymentMethod?: ExpenseInputPaymentMethod;
 }
 
 export type ReportsSummaryProduction = {

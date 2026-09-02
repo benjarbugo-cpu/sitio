@@ -259,6 +259,15 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/MillingTransaction"
+    delete:
+      operationId: deleteMillingTransaction
+      tags: [milling]
+      summary: Delete a milling transaction
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "204":
+          description: Deleted
   /inventory:
     get:
       operationId: listInventory
@@ -313,6 +322,15 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/InventoryItem"
+    delete:
+      operationId: deleteInventoryItem
+      tags: [inventory]
+      summary: Delete an inventory item
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "204":
+          description: Deleted
   /payments:
     get:
       operationId: listPayments
@@ -346,6 +364,76 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Payment"
+  /payments/{id}:
+    patch:
+      operationId: updatePayment
+      tags: [payments]
+      summary: Update payment details
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PaymentUpdate"
+      responses:
+        "200":
+          description: Updated payment
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Payment"
+    delete:
+      operationId: deletePayment
+      tags: [payments]
+      summary: Delete a payment
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "204":
+          description: Deleted
+  /expenses:
+    get:
+      operationId: listExpenses
+      tags: [reports]
+      summary: List all expenses
+      responses:
+        "200":
+          description: Expense list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Expense"
+    post:
+      operationId: createExpense
+      tags: [reports]
+      summary: Record an expense
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExpenseInput"
+      responses:
+        "201":
+          description: Created expense
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Expense"
+  /expenses/{id}:
+    delete:
+      operationId: deleteExpense
+      tags: [reports]
+      summary: Delete an expense
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "204":
+          description: Deleted
   /reports/summary:
     get:
       operationId: getReportsSummary
@@ -625,6 +713,13 @@ components:
         paymentMethod: { type: string, enum: [CASH, BANK_TRANSFER, GCASH, OTHER] }
         referenceNumber: { type: string }
         remarks: { type: string }
+    PaymentUpdate:
+      type: object
+      properties:
+        amount: { type: number, minimum: 0 }
+        paymentMethod: { type: string, enum: [CASH, BANK_TRANSFER, GCASH, OTHER] }
+        referenceNumber: { type: string }
+        remarks: { type: string }
     PaymentList:
       type: object
       required: [items, total, totalPaid, outstanding]
@@ -682,6 +777,27 @@ components:
         description: { type: string }
         timestamp: { type: string, format: date-time }
         tone: { type: string, enum: [success, warning, info, neutral] }
+    Expense:
+      type: object
+      required: [id, expenseCode, category, description, amount, payee, paymentMethod, date]
+      properties:
+        id: { type: integer }
+        expenseCode: { type: string }
+        category: { type: string }
+        description: { type: string }
+        amount: { type: number }
+        payee: { type: string }
+        paymentMethod: { type: string, enum: [CASH, BANK_TRANSFER, GCASH, OTHER] }
+        date: { type: string, format: date }
+    ExpenseInput:
+      type: object
+      required: [category, description, amount, payee]
+      properties:
+        category: { type: string }
+        description: { type: string }
+        amount: { type: number, minimum: 0 }
+        payee: { type: string }
+        paymentMethod: { type: string, enum: [CASH, BANK_TRANSFER, GCASH, OTHER], default: CASH }
     ReportsSummary:
       type: object
       required: [revenue, payments, expenses, netIncome, outstandingBalance, production]

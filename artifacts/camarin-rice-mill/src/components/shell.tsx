@@ -11,30 +11,38 @@ const operations = [
   { href: '/farmers', label: 'Farmers & customers', icon: UsersRound },
   { href: '/milling', label: 'Milling pipeline', icon: Wheat },
   { href: '/inventory', label: 'Inventory', icon: Warehouse },
-  { href: '/payments', label: 'Payments', icon: WalletCards },
+  { href: '/billing', label: 'Billing & Invoices', icon: FileText },
+  { href: '/payments', label: 'Cash Receipts', icon: WalletCards },
   { href: '/reports', label: 'Reports', icon: BarChart3 },
 ];
 const personal = [
   { href: '/my-dashboard', label: 'My overview', icon: LayoutDashboard },
   { href: '/my-transactions', label: 'My transactions', icon: Wheat },
-  { href: '/my-payments', label: 'My payments', icon: WalletCards },
-  { href: '/my-receipts', label: 'My receipts', icon: FileText },
+  { href: '/my-billing', label: 'My billing statements', icon: FileText },
+  { href: '/my-payments', label: 'My receipts', icon: WalletCards },
 ];
 
-export function Initials({ name }: { name: string }) {
-  return <span className="grid h-full w-full place-items-center bg-[hsl(var(--accent))] text-sm font-extrabold text-[hsl(var(--accent-foreground))]">{name.split(' ').map((part) => part[0]).join('').slice(0, 2)}</span>;
+export function Initials({ name, avatar }: { name: string; avatar?: string | null }) {
+  if (avatar && (avatar.startsWith('http') || avatar.startsWith('data:image'))) {
+    return <img src={avatar} alt={name} className="h-full w-full object-cover rounded-inherit" />;
+  }
+  return (
+    <span className="grid h-full w-full place-items-center bg-[hsl(var(--accent))] text-sm font-extrabold text-[hsl(var(--accent-foreground))]">
+      {name.split(' ').filter(Boolean).map((part) => part[0]).join('').slice(0, 2).toUpperCase() || 'U'}
+    </span>
+  );
 }
 
 export function AppShell({ children, portal = false }: { children: ReactNode; portal?: boolean }) {
   const [location, setLocation] = useLocation();
   const [open, setOpen] = useState(false);
-  const { data: user } = useGetCurrentUser({ query: { retry: false } });
-  const { data: notifications } = useListNotifications({ query: { retry: false } });
+  const { data: user } = useGetCurrentUser({ query: { retry: false } as any });
+  const { data: notifications } = useListNotifications({ query: { retry: false } as any });
   const logout = useLogout();
   const role = (user?.role ?? (portal ? 'FARMER' : 'ADMIN')) as Role;
   const isPortal = portal || role === 'FARMER' || role === 'CUSTOMER';
   const nav = isPortal ? personal : operations;
-  const unread = notifications?.filter((item) => item.unread).length ?? 0;
+  const unread = Array.isArray(notifications) ? notifications.filter((item) => item.unread).length : 0;
   const current = useMemo(() => nav.find((item) => location === item.href)?.label ?? (location === '/notifications' ? 'Notifications' : location === '/settings' ? 'Settings' : 'Workspace'), [location, nav]);
 
   const signOut = () => logout.mutate(undefined, { onSuccess: () => setLocation('/') });
@@ -55,10 +63,21 @@ export function AppShell({ children, portal = false }: { children: ReactNode; po
         <div className="mt-8 px-3 pb-3 font-mono-app text-[9px] uppercase tracking-[.2em] text-sidebar-foreground/40">Workspace</div>
         <nav className="space-y-1">
           <Link href="/notifications" onClick={() => setOpen(false)} data-testid="link-nav-notifications" className={`flex items-center gap-3 rounded-xl px-3 py-3 text-[13px] font-semibold transition-all ${location === '/notifications' ? 'bg-sidebar-accent text-sidebar-foreground' : 'text-sidebar-foreground/66 hover:bg-sidebar-accent hover:text-sidebar-foreground'}`}><Bell size={17} /><span className="flex-1">Notifications</span>{unread > 0 && <span className="grid h-5 min-w-5 place-items-center rounded-full bg-[hsl(var(--chart-4))] px-1 text-[10px] font-bold text-white">{unread}</span>}</Link>
-          <Link href="/settings" onClick={() => setOpen(false)} data-testid="link-nav-settings" className={`flex items-center gap-3 rounded-xl px-3 py-3 text-[13px] font-semibold transition-all ${location === '/settings' ? 'bg-sidebar-accent text-sidebar-foreground' : 'text-sidebar-foreground/66 hover:bg-sidebar-accent hover:text-sidebar-foreground'}`}><Settings2 size={17} /><span>Settings</span></Link>
+          <Link href="/settings" onClick={() => setOpen(false)} data-testid="link-nav-settings" className={`flex items-center gap-3 rounded-xl px-3 py-3 text-[13px] font-semibold transition-all ${location === '/settings' ? 'bg-sidebar-accent text-sidebar-foreground' : 'text-sidebar-foreground/66 hover:bg-sidebar-accent hover:text-sidebar-foreground'}`}><Settings2 size={17} /><span>Settings & Profile</span></Link>
         </nav>
         <div className="mt-auto rounded-2xl border border-sidebar-border bg-sidebar-accent/60 p-3">
-          <div className="flex items-center gap-3"><div className="h-9 w-9 overflow-hidden rounded-xl"><Initials name={user?.name ?? (isPortal ? 'Farmer' : 'Operator')} /></div><div className="min-w-0 flex-1"><div className="truncate text-[12px] font-bold">{user?.name ?? (isPortal ? 'Farmer account' : 'Operations desk')}</div><div className="font-mono-app text-[9px] uppercase tracking-wider text-sidebar-foreground/45">{role.toLowerCase()}</div></div><button onClick={signOut} className="rounded-lg p-2 text-sidebar-foreground/50 hover:bg-sidebar-accent hover:text-sidebar-foreground" data-testid="button-logout"><LogOut size={15} /></button></div>
+          <div className="flex items-center gap-3">
+            <Link href="/settings" className="h-9 w-9 overflow-hidden rounded-xl cursor-pointer hover:ring-2 hover:ring-primary transition">
+              <Initials name={user?.name ?? (isPortal ? 'Farmer' : 'Operator')} avatar={user?.avatar} />
+            </Link>
+            <Link href="/settings" className="min-w-0 flex-1 cursor-pointer">
+              <div className="truncate text-[12px] font-bold hover:text-primary transition">{user?.name ?? (isPortal ? 'Farmer account' : 'Operations desk')}</div>
+              <div className="font-mono-app text-[9px] uppercase tracking-wider text-sidebar-foreground/45">{role.toLowerCase()} · Edit</div>
+            </Link>
+            <button onClick={signOut} className="rounded-lg p-2 text-sidebar-foreground/50 hover:bg-sidebar-accent hover:text-sidebar-foreground" data-testid="button-logout" title="Sign Out">
+              <LogOut size={15} />
+            </button>
+          </div>
         </div>
       </aside>
       <div className="md:pl-[268px]">
@@ -66,7 +85,9 @@ export function AppShell({ children, portal = false }: { children: ReactNode; po
           <button className="rounded-xl border border-border bg-card p-2.5 md:hidden" onClick={() => setOpen(true)} data-testid="button-open-menu"><Menu size={18} /></button>
           <div className="min-w-0 flex-1"><div className="font-mono-app text-[9px] uppercase tracking-[.2em] text-muted-foreground">Sitio Camarin / {isPortal ? 'private view' : 'Dimataling operations'}</div><h1 className="truncate text-[18px] font-extrabold tracking-[-.04em] text-foreground">{current}</h1></div>
           <Link href="/notifications" className="relative rounded-xl border border-border bg-card p-2.5 text-muted-foreground transition hover:border-primary/30 hover:text-primary" data-testid="button-header-notifications"><Bell size={18} />{unread > 0 && <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-[hsl(var(--chart-4))]" />}</Link>
-          <div className="hidden h-9 w-9 overflow-hidden rounded-xl border border-border sm:block"><Initials name={user?.name ?? (isPortal ? 'Farmer' : 'Operator')} /></div>
+          <Link href="/settings" title="Account Settings & Profile" className="hidden h-9 w-9 overflow-hidden rounded-xl border border-border sm:block cursor-pointer hover:ring-2 hover:ring-primary transition">
+            <Initials name={user?.name ?? (isPortal ? 'Farmer' : 'Operator')} avatar={user?.avatar} />
+          </Link>
         </header>
         <main className="min-h-[calc(100dvh-72px)] p-5 md:p-8">{children}</main>
       </div>

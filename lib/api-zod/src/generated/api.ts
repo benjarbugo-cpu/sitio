@@ -454,6 +454,16 @@ export const UpdateMillingTransactionResponse = zod.object({
 
 
 /**
+ * @summary Delete a milling transaction
+ */
+export const DeleteMillingTransactionParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const DeleteMillingTransactionResponse = zod.void()
+
+
+/**
  * @summary List inventory items
  */
 export const listInventoryQueryPageDefault = 1;
@@ -577,6 +587,16 @@ export const UpdateInventoryItemResponse = zod.object({
 
 
 /**
+ * @summary Delete an inventory item
+ */
+export const DeleteInventoryItemParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const DeleteInventoryItemResponse = zod.void()
+
+
+/**
  * @summary List payments for the current role
  */
 export const listPaymentsQueryPageDefault = 1;
@@ -638,6 +658,101 @@ export const CreatePaymentResponse = zod.object({
   "receivedBy": zod.string().optional(),
   "remarks": zod.string().nullish()
 })
+
+
+/**
+ * @summary Update payment details
+ */
+export const UpdatePaymentParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const updatePaymentBodyAmountMin = 0;
+
+
+
+export const UpdatePaymentBody = zod.object({
+  "amount": zod.number().min(updatePaymentBodyAmountMin).optional(),
+  "paymentMethod": zod.enum(['CASH', 'BANK_TRANSFER', 'GCASH', 'OTHER']).optional(),
+  "referenceNumber": zod.string().optional(),
+  "remarks": zod.string().optional()
+})
+
+export const UpdatePaymentResponse = zod.object({
+  "id": zod.int(),
+  "paymentCode": zod.string(),
+  "transactionCode": zod.string(),
+  "customerName": zod.string(),
+  "date": zod.coerce.date(),
+  "amount": zod.number(),
+  "paymentMethod": zod.enum(['CASH', 'BANK_TRANSFER', 'GCASH', 'OTHER']),
+  "referenceNumber": zod.string().nullish(),
+  "receivedBy": zod.string().optional(),
+  "remarks": zod.string().nullish()
+})
+
+
+/**
+ * @summary Delete a payment
+ */
+export const DeletePaymentParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const DeletePaymentResponse = zod.void()
+
+
+/**
+ * @summary List all expenses
+ */
+export const ListExpensesResponseItem = zod.object({
+  "id": zod.int(),
+  "expenseCode": zod.string(),
+  "category": zod.string(),
+  "description": zod.string(),
+  "amount": zod.number(),
+  "payee": zod.string(),
+  "paymentMethod": zod.enum(['CASH', 'BANK_TRANSFER', 'GCASH', 'OTHER']),
+  "date": zod.coerce.date()
+})
+export const ListExpensesResponse = zod.array(ListExpensesResponseItem)
+
+
+/**
+ * @summary Record an expense
+ */
+export const createExpenseBodyAmountMin = 0;
+
+export const createExpenseBodyPaymentMethodDefault = `CASH`;
+
+export const CreateExpenseBody = zod.object({
+  "category": zod.string(),
+  "description": zod.string(),
+  "amount": zod.number().min(createExpenseBodyAmountMin),
+  "payee": zod.string(),
+  "paymentMethod": zod.enum(['CASH', 'BANK_TRANSFER', 'GCASH', 'OTHER']).default(createExpenseBodyPaymentMethodDefault)
+})
+
+export const CreateExpenseResponse = zod.object({
+  "id": zod.int(),
+  "expenseCode": zod.string(),
+  "category": zod.string(),
+  "description": zod.string(),
+  "amount": zod.number(),
+  "payee": zod.string(),
+  "paymentMethod": zod.enum(['CASH', 'BANK_TRANSFER', 'GCASH', 'OTHER']),
+  "date": zod.coerce.date()
+})
+
+
+/**
+ * @summary Delete an expense
+ */
+export const DeleteExpenseParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const DeleteExpenseResponse = zod.void()
 
 
 /**
